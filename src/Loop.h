@@ -30,17 +30,11 @@ private:
     static void wakeupCb(us_loop_t *loop) {
         LoopData *loopData = (LoopData *) us_loop_ext(loop);
 
-        /* Swap current deferQueue */
-        loopData->deferMutex.lock();
-        int oldDeferQueue = loopData->currentDeferQueue;
-        loopData->currentDeferQueue = (loopData->currentDeferQueue + 1) % 2;
-        loopData->deferMutex.unlock();
-
         /* Drain the queue */
-        for (auto &x : loopData->deferQueues[oldDeferQueue]) {
-            x();
+        MoveOnlyFunction<void()> cb;
+        while (loopData->deferQueue.try_pop(cb)) {
+            cb();
         }
-        loopData->deferQueues[oldDeferQueue].clear();
     }
 
     static void preCb(us_loop_t *loop) {
@@ -169,10 +163,7 @@ public:
     void defer(MoveOnlyFunction<void()> &&cb) {
         LoopData *loopData = (LoopData *) us_loop_ext((us_loop_t *) this);
 
-        //if (std::thread::get_id() == ) // todo: add fast path for same thread id
-        loopData->deferMutex.lock();
-        loopData->deferQueues[loopData->currentDeferQueue].emplace_back(std::move(cb));
-        loopData->deferMutex.unlock();
+        loopData->deferQueue.emplace(std::move(cb));
 
         us_wakeup_loop((us_loop_t *) this);
     }
