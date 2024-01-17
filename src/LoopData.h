@@ -41,12 +41,15 @@ struct alignas(64) LoopData {
     friend struct Loop;
 private:
     rigtorp::MPMCQueue<MoveOnlyFunction<void()>> deferQueue;
+    bool lockFree;
+    std::list<MoveOnlyFunction<void()>> lockedDeferQueue;
+    std::mutex lockedDeferQueueLock;
 
     /* Map from void ptr to handler */
     std::map<void *, MoveOnlyFunction<void(Loop *)>> postHandlers, preHandlers;
 
 public:
-    LoopData() : deferQueue(100) {
+    LoopData() : deferQueue(100), lockFree(false) {
         updateDate();
     }
 

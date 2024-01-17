@@ -32,8 +32,17 @@ private:
 
         /* Drain the queue */
         MoveOnlyFunction<void()> cb;
-        while (loopData->deferQueue.try_pop(cb)) {
-            cb();
+        if(loopData->lockFree) {
+            while (loopData->deferQueue.try_pop(cb)) {
+                cb();
+            }
+        } else {
+            std::unique_lock lock(loopData->lockedDeferQueueLock);
+            while (!loopData->lockedDeferQueue.empty()) {
+                cb = std::move(loopData->lockedDeferQueue.front());
+                loopData->lockedDeferQueue.pop_front();
+                cb();
+            }
         }
     }
 
@@ -117,6 +126,11 @@ public:
 
         return getLazyLoop().loop;
     }
+    
+    void setLockFree(bool newLockFree) {
+        LoopData *loopData = (LoopData *) us_loop_ext((us_loop_t *) this);
+        loopData->lockFree = newLockFree;
+    }
 
     /* Freeing the default loop should be done once */
     void free() {
@@ -163,7 +177,12 @@ public:
     void defer(MoveOnlyFunction<void()> &&cb) {
         LoopData *loopData = (LoopData *) us_loop_ext((us_loop_t *) this);
 
-        loopData->deferQueue.emplace(std::move(cb));
+        if(loopData->lockFree) {
+            loopData->deferQueue.emplace(std::move(cb));
+        } else {
+            std::unique_lock lock(loopData->lockedDeferQueueLock);
+            loopData->lockedDeferQueue.emplace_back(std::move(cb));
+        }
 
         us_wakeup_loop((us_loop_t *) this);
     }
